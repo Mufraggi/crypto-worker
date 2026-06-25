@@ -1,17 +1,13 @@
 {
-  "name": "@template/domain",
+  "name": "@template/worker",
   "version": "0.0.0",
   "type": "module",
   "license": "MIT",
-  "description": "The domain template",
+  "description": "The worker app",
   "repository": {
     "type": "git",
     "url": "<PLACEHOLDER>",
-    "directory": "packages/domain"
-  },
-  "publishConfig": {
-    "access": "public",
-    "directory": "dist"
+    "directory": "apps/worker"
   },
   "scripts": {
     "codegen": "build-utils prepare-v2",
@@ -20,13 +16,20 @@
     "build-cjs": "babel build/esm --plugins @babel/transform-export-namespace-from --plugins @babel/transform-modules-commonjs --out-dir build/cjs --source-maps",
     "build-annotate": "babel build/esm --plugins annotate-pure-calls --out-dir build/esm --source-maps",
     "check": "tsc -b tsconfig.json",
+    "start": "tsx src/main.ts",
     "test": "vitest",
     "coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@effect/cluster": "latest",
     "@effect/platform": "latest",
     "@effect/platform-node": "latest",
     "@effect/sql": "latest",
+    "@effect/sql-pg": "latest",
+    "@effect/workflow": "latest",
+    "@template/database": "workspace:^",
+    "@template/domain": "workspace:^",
+    "@template/workflow": "workspace:^",
     "effect": "latest"
   },
   "effect": {

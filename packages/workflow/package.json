@@ -1,13 +1,13 @@
 {
-  "name": "@template/domain",
+  "name": "@template/workflow",
   "version": "0.0.0",
   "type": "module",
   "license": "MIT",
-  "description": "The domain template",
+  "description": "The workflow package",
   "repository": {
     "type": "git",
     "url": "<PLACEHOLDER>",
-    "directory": "packages/domain"
+    "directory": "packages/workflow"
   },
   "publishConfig": {
     "access": "public",
@@ -24,9 +24,15 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@effect/cluster": "latest",
+    "@effect/experimental": "latest",
     "@effect/platform": "latest",
     "@effect/platform-node": "latest",
     "@effect/sql": "latest",
+    "@effect/sql-pg": "latest",
+    "@effect/workflow": "latest",
+    "@template/database": "workspace:^",
+    "@template/domain": "workspace:^",
     "effect": "latest"
   },
   "effect": {
