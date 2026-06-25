@@ -1,64 +1,70 @@
 import { ClusterWorkflowEngine, RunnerAddress } from "@effect/cluster"
 import { FetchHttpClient } from "@effect/platform"
-import { NodeClusterSocket } from "@effect/platform-node"
+import { NodeClusterSocket, NodeRuntime } from "@effect/platform-node"
 import { CoinGeckoMigrations } from "@template/database/CoinGeckoMigrations"
 import { PgLive } from "@template/database/Sql"
 import {
-  CoinEnrichWorker,
   CoinEnrichWorkflow,
-  CoinGeckoClientLive,
-  PriceSnapshotWorker,
-  PriceSnapshotWorkflow
-} from "@template/workflow"
-import { Effect, Layer, ManagedRuntime, Option, Ref, Schedule } from "effect"
+  CoinEnrichWorkflowBusinessLogic,
+  CoinEnrichWorkflowLogic
+} from "@template/workflow/coingecko/CoinEnrichWorkflow"
+import {
+  PriceSnapshotWorkflow,
+  PriceSnapshotWorkflowBusinessLogic,
+  PriceSnapshotWorkflowLogic
+} from "@template/workflow/coingecko/PriceSnapshotWorkflow"
+import { Effect, Layer, Option, Ref, Schedule } from "effect"
 import { randomUUID } from "node:crypto"
 import { runHealthServer } from "./Health/HttpServer.js"
 
-// ── Base layers ──────────────────────────────────────────────────────────────
+// ── Shared base layers ───────────────────────────────────────────────────────
+// These three are referenced (by identity) in several places below. Effect memoizes a layer
+// per build graph, so referencing the SAME value everywhere yields ONE runner socket, ONE
+// engine and ONE Postgres pool — never duplicates.
 
-const RunnerLayer = Layer.unwrapEffect(
-  Effect.succeed(
-    NodeClusterSocket.layer({
-      shardingConfig: {
-        runnerAddress: Option.some(RunnerAddress.make("0.0.0.0", 34431)),
-        runnerListenAddress: Option.some(RunnerAddress.make("0.0.0.0", 34431))
-      }
-    })
-  )
-)
+const RunnerLayer = NodeClusterSocket.layer({
+  shardingConfig: {
+    runnerAddress: Option.some(RunnerAddress.make("0.0.0.0", 34431)),
+    runnerListenAddress: Option.some(RunnerAddress.make("0.0.0.0", 34431))
+  }
+})
 
 const BaseDependenciesLayer = Layer.mergeAll(PgLive, FetchHttpClient.layer)
 
 const ClusterEngineLayer = ClusterWorkflowEngine.layer
 
-// ── Fully wired application layer ──────────────────────────────────────────
+// ── One layer per workflow (canonical recipe, specific → generic) ────────────
 
-// Build a fully self-contained layer by wiring deps via Layer.provide
-const FullLayer: Layer.Layer<never, never, never> = Layer.mergeAll(
-  BaseDependenciesLayer,
-  CoinGeckoClientLive,
-  ClusterEngineLayer.pipe(
-    Layer.provide(RunnerLayer.pipe(
-      Layer.provide(BaseDependenciesLayer)
-    ))
-  ),
-  PriceSnapshotWorkflow.toLayer(PriceSnapshotWorker).pipe(
-    Layer.provide(CoinGeckoClientLive),
-    Layer.provide(ClusterEngineLayer),
-    Layer.provide(RunnerLayer),
-    Layer.provide(BaseDependenciesLayer)
-  ),
-  CoinEnrichWorkflow.toLayer(CoinEnrichWorker).pipe(
-    Layer.provide(CoinGeckoClientLive),
-    Layer.provide(ClusterEngineLayer),
-    Layer.provide(RunnerLayer),
-    Layer.provide(BaseDependenciesLayer)
-  )
-) as unknown as Layer.Layer<never, never, never>
+const PriceSnapshotWorkflowLayer = PriceSnapshotWorkflow.toLayer(PriceSnapshotWorkflowLogic).pipe(
+  Layer.provide(PriceSnapshotWorkflowBusinessLogic.Default),
+  Layer.provide(ClusterEngineLayer),
+  Layer.provide(RunnerLayer),
+  Layer.provide(BaseDependenciesLayer)
+)
 
-// ── Runtime ─────────────────────────────────────────────────────────────────
+const CoinEnrichWorkflowLayer = CoinEnrichWorkflow.toLayer(CoinEnrichWorkflowLogic).pipe(
+  Layer.provide(CoinEnrichWorkflowBusinessLogic.Default),
+  Layer.provide(ClusterEngineLayer),
+  Layer.provide(RunnerLayer),
+  Layer.provide(BaseDependenciesLayer)
+)
 
-const runtime = ManagedRuntime.make(FullLayer)
+// The workflow layers above *consume* the engine to register their handlers but do not
+// re-expose it. The in-process scheduler (below) needs `WorkflowEngine` to call `.execute`,
+// so expose a fully-provided engine built from the SAME RunnerLayer/Base values → memoized to
+// the very same runner the handlers registered on.
+const SchedulerEngineLayer = ClusterEngineLayer.pipe(
+  Layer.provide(RunnerLayer),
+  Layer.provide(BaseDependenciesLayer)
+)
+
+// ── Aggregate — every workflow layer + the engine/base the program itself needs ──
+const MainLayer = Layer.mergeAll(
+  PriceSnapshotWorkflowLayer,
+  CoinEnrichWorkflowLayer,
+  SchedulerEngineLayer,
+  BaseDependenciesLayer
+)
 
 // ── Scheduler ────────────────────────────────────────────────────────────────
 
@@ -89,14 +95,18 @@ const scheduler = Effect.gen(function*() {
   const indexRef = yield* Ref.make(0)
 
   const priceSnapshotLoop = Effect.repeat(
-    PriceSnapshotWorkflow.execute({ runId: randomUUID() }),
+    PriceSnapshotWorkflow.execute({ runId: randomUUID() }).pipe(
+      Effect.catchAll((error) => Effect.logError(`PriceSnapshotWorkflow failed: ${error}`))
+    ),
     Schedule.spaced("5 minutes")
   )
 
   const coinEnrichLoop = Effect.repeat(
     Effect.gen(function*() {
       const i = yield* Ref.getAndUpdate(indexRef, (n) => (n + 1) % 20)
-      yield* CoinEnrichWorkflow.execute({ coinId: TOP_20_COINS[i] })
+      yield* CoinEnrichWorkflow.execute({ coinId: TOP_20_COINS[i] }).pipe(
+        Effect.catchAll((error) => Effect.logError(`CoinEnrichWorkflow failed: ${error}`))
+      )
     }),
     Schedule.spaced("10 minutes")
   )
@@ -106,18 +116,17 @@ const scheduler = Effect.gen(function*() {
 
 // ── Program ──────────────────────────────────────────────────────────────────
 
-const program: Effect.Effect<void, never, never> = Effect.gen(function*() {
+const program = Effect.gen(function*() {
   yield* runHealthServer
 
-  // Create tables before anything else
+  // Create the demo tables before anything triggers a workflow.
   yield* CoinGeckoMigrations
 
-  // Start the background scheduler
+  // Start the background scheduler against the live cluster engine.
   yield* scheduler.pipe(Effect.forkDaemon)
 
-  // Keep process alive
-  yield* Effect.never
-}) as unknown as Effect.Effect<void, never, never>
+  // Keep the process (and the registered workflow handlers) alive.
+  return yield* Effect.never
+})
 
-// Run the program using the managed runtime
-runtime.runFork(program)
+program.pipe(Effect.provide(MainLayer), NodeRuntime.runMain)

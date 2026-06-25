@@ -8,44 +8,27 @@
  */
 export * as Workflow from "./Workflow.js"
 
-/**
- * Worker for CoinEnrichWorkflow.
- *
- * Two sequential steps:
- *  1. Fetch coin detail from CoinGecko
- *  2. Upsert into demo_coin_details
- *
- * All errors are caught and logged to satisfy the Never error schema.
- */
-export * as CoinEnrichWorker from "./coingecko/CoinEnrichWorker.js"
-
-/**
- * Workflow that fetches detailed metadata for a single coin from CoinGecko
- * and persists it to the demo_coin_details table.
- */
 export * as CoinEnrichWorkflow from "./coingecko/CoinEnrichWorkflow.js"
 
+/**
+ * CoinGecko HTTP client, injectable via `Effect.Service`.
+ *
+ * `.Default` already bundles `FetchHttpClient.layer`, so callers only provide
+ * `CoinGeckoClient.Default`. Public API: `getMarkets`, `getCoinDetail`, `getMarketChart`.
+ */
 export * as CoinGeckoClient from "./coingecko/CoinGeckoClient.js"
+
+/**
+ * The only layer that touches raw SQL for the CoinGecko demo tables.
+ *
+ * Writes use `SqlSchema.void`; `SqlError`s are turned into defects via `Effect.orDie`
+ * (a DB failure is a 500, not a business error) and every method carries a span.
+ */
+export * as CoinGeckoRepository from "./coingecko/CoinGeckoRepository.js"
 
 /**
  * Schema for a single coin market entry from GET /coins/markets.
  */
 export * as CoinGeckoSchemas from "./coingecko/CoinGeckoSchemas.js"
 
-/**
- * Worker for PriceSnapshotWorkflow.
- *
- * Three sequential steps:
- *  1. Fetch top-100 markets from CoinGecko
- *  2. Transform to snapshot rows (pure)
- *  3. Insert rows into demo_price_snapshots
- *
- * All errors are caught and logged to satisfy the Never error schema.
- */
-export * as PriceSnapshotWorker from "./coingecko/PriceSnapshotWorker.js"
-
-/**
- * Workflow that captures a snapshot of top coin prices from CoinGecko
- * and persists them to the demo_price_snapshots table.
- */
 export * as PriceSnapshotWorkflow from "./coingecko/PriceSnapshotWorkflow.js"
