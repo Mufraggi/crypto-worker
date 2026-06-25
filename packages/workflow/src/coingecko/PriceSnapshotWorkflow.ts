@@ -1,7 +1,8 @@
-import { Workflow } from "@effect/workflow"
+import { Activity, Workflow } from "@effect/workflow"
 import { Effect, pipe, Schedule, Schema } from "effect"
 import { CoinGeckoClient } from "./CoinGeckoClient.js"
 import { CoinGeckoRepository } from "./CoinGeckoRepository.js"
+import { CoinMarket } from "./CoinGeckoSchemas.js"
 
 // 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
 export class PriceSnapshotWorkflowError extends Schema.TaggedError<PriceSnapshotWorkflowError>()(
@@ -24,7 +25,8 @@ const fetchSchedule = Schedule.exponential("2 seconds").pipe(
   Schedule.compose(Schedule.recurs(5))
 )
 
-// 3. Business logic — fetch markets → transform → persist.
+// 3. Business logic — granular steps, one per durable Activity. Each stays pure domain + typed
+//    errors (client/repo captured in the closure), so its R is `never`.
 export class PriceSnapshotWorkflowBusinessLogic extends Effect.Service<PriceSnapshotWorkflowBusinessLogic>()(
   "PriceSnapshotWorkflowBusinessLogic",
   {
@@ -33,25 +35,23 @@ export class PriceSnapshotWorkflowBusinessLogic extends Effect.Service<PriceSnap
       const repo = yield* CoinGeckoRepository
 
       return {
-        run: (runId: string) =>
-          pipe(
-            client.getMarkets,
-            Effect.delay("2 seconds"),
-            Effect.retry(fetchSchedule),
-            Effect.mapError((error) => new PriceSnapshotWorkflowError({ message: `fetchMarkets failed: ${error}` })),
-            Effect.map((markets) =>
-              markets.map((m) => ({
-                runId,
-                coinId: m.id,
-                symbol: m.symbol,
-                name: m.name,
-                currentPrice: m.currentPrice,
-                marketCap: m.marketCap,
-                priceChangePct: m.priceChangePercentage24h
-              }))
-            ),
-            Effect.flatMap((rows) => repo.insertPriceSnapshots(rows)),
-            Effect.asVoid
+        fetchMarkets: pipe(
+          client.getMarkets,
+          Effect.delay("2 seconds"),
+          Effect.retry(fetchSchedule),
+          Effect.mapError((error) => new PriceSnapshotWorkflowError({ message: `fetchMarkets failed: ${error}` }))
+        ),
+        persistSnapshots: (runId: string, markets: ReadonlyArray<CoinMarket>) =>
+          repo.insertPriceSnapshots(
+            markets.map((m) => ({
+              runId,
+              coinId: m.id,
+              symbol: m.symbol,
+              name: m.name,
+              currentPrice: m.currentPrice,
+              marketCap: m.marketCap,
+              priceChangePct: m.priceChangePercentage24h
+            }))
           )
       }
     }),
@@ -59,7 +59,9 @@ export class PriceSnapshotWorkflowBusinessLogic extends Effect.Service<PriceSnap
   }
 ) {}
 
-// 4. Logic adapter — registered by the runner via Workflow.toLayer(...).
+// 4. Logic adapter — registered by the runner via Workflow.toLayer(...). Each step is wrapped in
+//    Activity.make so its result is journaled: on resume, a completed fetch is NOT re-run (no
+//    wasted CoinGecko call) and only the failed step retries.
 export const PriceSnapshotWorkflowLogic = (
   payload: { readonly runId: string },
   executionId: string
@@ -67,5 +69,16 @@ export const PriceSnapshotWorkflowLogic = (
   Effect.gen(function*() {
     yield* Effect.logDebug(`PriceSnapshotWorkflow execution ${executionId}`)
     const logic = yield* PriceSnapshotWorkflowBusinessLogic
-    return yield* logic.run(payload.runId)
+
+    const markets = yield* Activity.make({
+      name: "fetchMarkets",
+      success: Schema.Array(CoinMarket),
+      error: PriceSnapshotWorkflowError,
+      execute: logic.fetchMarkets
+    })
+
+    yield* Activity.make({
+      name: "persistSnapshots",
+      execute: logic.persistSnapshots(payload.runId, markets)
+    })
   })

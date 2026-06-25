@@ -1,7 +1,8 @@
-import { Workflow } from "@effect/workflow"
+import { Activity, Workflow } from "@effect/workflow"
 import { Effect, pipe, Schedule, Schema } from "effect"
 import { CoinGeckoClient } from "./CoinGeckoClient.js"
 import { CoinGeckoRepository } from "./CoinGeckoRepository.js"
+import { CoinDetail } from "./CoinGeckoSchemas.js"
 
 // 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
 export class CoinEnrichWorkflowError extends Schema.TaggedError<CoinEnrichWorkflowError>()(
@@ -25,7 +26,8 @@ const fetchSchedule = Schedule.exponential("2 seconds").pipe(
   Schedule.compose(Schedule.recurs(5))
 )
 
-// 3. Business logic — fetch coin detail → upsert.
+// 3. Business logic — granular steps, one per durable Activity. Each stays pure domain + typed
+//    errors (client/repo captured in the closure), so its R is `never`.
 export class CoinEnrichWorkflowBusinessLogic extends Effect.Service<CoinEnrichWorkflowBusinessLogic>()(
   "CoinEnrichWorkflowBusinessLogic",
   {
@@ -34,24 +36,25 @@ export class CoinEnrichWorkflowBusinessLogic extends Effect.Service<CoinEnrichWo
       const repo = yield* CoinGeckoRepository
 
       return {
-        run: (coinId: string) =>
+        fetchCoinDetail: (coinId: string) =>
           pipe(
             client.getCoinDetail(coinId),
             Effect.delay("2 seconds"),
             Effect.retry(fetchSchedule),
             Effect.mapError((error) =>
               new CoinEnrichWorkflowError({ message: `fetchCoinDetail failed for ${coinId}: ${error}` })
-            ),
-            Effect.flatMap((detail) => repo.upsertCoinDetail(detail)),
-            Effect.asVoid
-          )
+            )
+          ),
+        upsertCoinDetail: (detail: CoinDetail) => repo.upsertCoinDetail(detail)
       }
     }),
     dependencies: [CoinGeckoClient.Default, CoinGeckoRepository.Default]
   }
 ) {}
 
-// 4. Logic adapter — registered by the runner via Workflow.toLayer(...).
+// 4. Logic adapter — registered by the runner via Workflow.toLayer(...). Each step is wrapped in
+//    Activity.make so its result is journaled: on resume, a completed fetch is NOT re-run (no
+//    wasted CoinGecko call) and only the failed step retries.
 export const CoinEnrichWorkflowLogic = (
   payload: { readonly coinId: string },
   executionId: string
@@ -59,5 +62,16 @@ export const CoinEnrichWorkflowLogic = (
   Effect.gen(function*() {
     yield* Effect.logDebug(`CoinEnrichWorkflow execution ${executionId}`)
     const logic = yield* CoinEnrichWorkflowBusinessLogic
-    return yield* logic.run(payload.coinId)
+
+    const detail = yield* Activity.make({
+      name: "fetchCoinDetail",
+      success: CoinDetail,
+      error: CoinEnrichWorkflowError,
+      execute: logic.fetchCoinDetail(payload.coinId)
+    })
+
+    yield* Activity.make({
+      name: "upsertCoinDetail",
+      execute: logic.upsertCoinDetail(detail)
+    })
   })
