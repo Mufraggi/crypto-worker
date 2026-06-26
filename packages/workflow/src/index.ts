@@ -35,6 +35,9 @@ export * as CoinGeckoRepository from "./coingecko/CoinGeckoRepository.js"
 
 /**
  * Schema for a single coin market entry from GET /coins/markets.
+ *
+ * The API returns snake_case keys; `Schema.fromKey` decodes them into the camelCase domain
+ * shape used by the workers (the encoded form stays snake_case).
  */
 export * as CoinGeckoSchemas from "./coingecko/CoinGeckoSchemas.js"
 
