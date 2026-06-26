@@ -80,15 +80,7 @@ const TOP_20_COINS = [
   "cardano",
   "avalanche-2",
   "shiba-inu",
-  "polkadot",
-  "chainlink",
-  "uniswap",
-  "litecoin",
-  "bitcoin-cash",
-  "stellar",
-  "aptos",
-  "near",
-  "matic-network"
+  "polkadot"
 ]
 
 const scheduler = Effect.gen(function*() {
@@ -104,7 +96,7 @@ const scheduler = Effect.gen(function*() {
         Effect.catchAll((error) => Effect.logError(`PriceSnapshotWorkflow failed: ${error}`))
       )
     }),
-    Schedule.spaced("10 seconds")
+    Schedule.spaced("30 seconds")
   )
 
   const coinEnrichLoop = Effect.repeat(
@@ -116,7 +108,7 @@ const scheduler = Effect.gen(function*() {
         Effect.catchAll((error) => Effect.logError(`CoinEnrichWorkflow failed: ${error}`))
       )
     }),
-    Schedule.spaced("1 minutes")
+    Schedule.spaced("10 minutes")
   )
 
   yield* Effect.all([priceSnapshotLoop, coinEnrichLoop], { concurrency: "unbounded" })
