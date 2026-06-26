@@ -1,0 +1,57 @@
+# Dependencies (réinstallées via `pnpm install` dans le builder)
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# Build artifacts (régénérés par le build dans le builder)
+build/
+**/build/
+dist/
+**/dist/
+coverage/
+**/coverage/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Émis/barrels git-ignorés posés à côté des sources par le TS server ou codegen.
+# On les exclut pour que le contexte Docker = un checkout git propre (sinon une copie
+# locale périmée d'un barrel `index.ts` casse le build, ex: namespace vs valeur).
+apps/*/src/index.ts
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+apps/*/src/**/*.js
+apps/*/src/**/*.js.map
+apps/*/src/**/*.d.ts
+apps/*/src/**/*.d.ts.map
+
+# VCS & CI
+.git/
+.gitignore
+.github/
+
+# Env & secrets (ne jamais embarquer dans une image)
+.env
+.env.*
+.envrc
+
+# Éditeurs / outillage local
+.idea/
+.vscode/
+.claude/
+.direnv/
+.DS_Store
+**/.DS_Store
+
+# Docs & divers non nécessaires au runtime
+docs/
+scratchpad/
+*.md
+flake.nix
+flake.lock
+
+# Les Dockerfiles / compose eux-mêmes
+**/Dockerfile
+**/.dockerignore
+docker-compose.override.yml

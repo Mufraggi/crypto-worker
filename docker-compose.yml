@@ -8,25 +8,29 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$DB_USER"]
+      # Use the variables Postgres actually sets in the container (POSTGRES_*), not DB_*.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
     ports:
       - "5432:5432"
 
-  dashboard:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    ports:
-      - "3000:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
+  # dashboard: disabled until apps/web exists (its Dockerfile is referenced but not present).
+  #   Re-enable once the web app is added.
+  # dashboard:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/web/Dockerfile
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   env_file: .env
 
   worker:
+    image: ghcr.io/mufraggi/crypto-worker:${WORKER_TAG:-latest}
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
@@ -38,6 +42,8 @@ services:
     environment:
       CLUSTER_RUNNER_HOST: worker
       CLUSTER_RUNNER_PORT: "34431"
+    ports:
+      - "8081:8081"
 
 volumes:
   pgdata:

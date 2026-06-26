@@ -48,6 +48,9 @@ export const PgLive = Layer.unwrapEffect(
     })
   })
 ).pipe(
-  Layer.provide(PlatformConfigProvider.layerDotEnv(path.join(process.cwd(), ".env"))),
+  // `layerDotEnvAdd` overlays a local `.env` onto the default `process.env` provider (and its
+  // error channel is `never`, so a missing file is fine). This makes config container-native —
+  // env vars from `environment:` / `env_file:` are read — while keeping `.env` for local dev.
+  Layer.provide(PlatformConfigProvider.layerDotEnvAdd(path.join(process.cwd(), ".env"))),
   Layer.provide(NodeContext.layer)
 )
