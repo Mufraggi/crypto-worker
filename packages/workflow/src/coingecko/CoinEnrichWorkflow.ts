@@ -17,11 +17,13 @@ export class CoinEnrichWorkflowError extends Schema.TaggedError<CoinEnrichWorkfl
 ) {}
 
 // 2. Durable handle — fetch metadata for one coin and upsert into demo_coin_details.
-//    idempotencyKey derives from the stable coinId (NOT a timestamp) so re-firing dedups.
+//    idempotencyKey = coinId + tick: each scheduler tick passes a fresh `tick`, so the coin is
+//    re-enriched (re-fetched + re-upserted) every tick. Within one tick (and its retries) the
+//    key is stable, so retries dedup to a single execution.
 export const CoinEnrichWorkflow = Workflow.make({
   name: "CoinEnrichWorkflow",
-  payload: Schema.Struct({ coinId: Schema.String }),
-  idempotencyKey: (payload: { coinId: string }) => payload.coinId,
+  payload: Schema.Struct({ coinId: Schema.String, tick: Schema.String }),
+  idempotencyKey: (payload: { coinId: string; tick: string }) => `${payload.coinId}-${payload.tick}`,
   success: Schema.Void,
   error: CoinEnrichWorkflowError
 })
@@ -62,11 +64,11 @@ export class CoinEnrichWorkflowBusinessLogic extends Effect.Service<CoinEnrichWo
 //    Activity.make so its result is journaled: on resume, a completed fetch is NOT re-run (no
 //    wasted CoinGecko call) and only the failed step retries.
 export const CoinEnrichWorkflowLogic = (
-  payload: { readonly coinId: string },
+  payload: { readonly coinId: string; readonly tick: string },
   executionId: string
 ) =>
   Effect.gen(function*() {
-    yield* Effect.logDebug(`CoinEnrichWorkflow execution ${executionId}`)
+    yield* Effect.logInfo(`▶ CoinEnrich start coinId=${payload.coinId} (exec ${executionId})`)
     const logic = yield* CoinEnrichWorkflowBusinessLogic
 
     const detail = yield* Activity.make({
@@ -80,4 +82,5 @@ export const CoinEnrichWorkflowLogic = (
       name: "upsertCoinDetail",
       execute: logic.upsertCoinDetail(detail)
     })
+    yield* Effect.logInfo(`✔ CoinEnrich done coinId=${payload.coinId} → ${detail.name} (rank ${detail.marketCapRank})`)
   })

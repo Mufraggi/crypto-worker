@@ -73,7 +73,7 @@ export const PriceSnapshotWorkflowLogic = (
   executionId: string
 ) =>
   Effect.gen(function*() {
-    yield* Effect.logDebug(`PriceSnapshotWorkflow execution ${executionId}`)
+    yield* Effect.logInfo(`▶ PriceSnapshot start runId=${payload.runId} (exec ${executionId})`)
     const logic = yield* PriceSnapshotWorkflowBusinessLogic
 
     const markets = yield* Activity.make({
@@ -83,8 +83,10 @@ export const PriceSnapshotWorkflowLogic = (
       execute: logic.fetchMarkets
     })
 
+    yield* Effect.logInfo(`  PriceSnapshot fetched ${markets.length} markets, persisting…`)
     yield* Activity.make({
       name: "persistSnapshots",
       execute: logic.persistSnapshots(payload.runId, markets)
     })
+    yield* Effect.logInfo(`✔ PriceSnapshot done runId=${payload.runId} (${markets.length} rows)`)
   })

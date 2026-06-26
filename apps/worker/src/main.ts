@@ -95,20 +95,28 @@ const scheduler = Effect.gen(function*() {
   const indexRef = yield* Ref.make(0)
 
   const priceSnapshotLoop = Effect.repeat(
-    PriceSnapshotWorkflow.execute({ runId: randomUUID() }).pipe(
-      Effect.catchAll((error) => Effect.logError(`PriceSnapshotWorkflow failed: ${error}`))
-    ),
-    Schedule.spaced("5 minutes")
+    // Generate a fresh runId PER ITERATION. If randomUUID() is called once when the Effect is
+    // built, every repeat reuses the same idempotencyKey and the cluster dedupes to the first
+    // run — so the snapshot would only ever execute once.
+    Effect.gen(function*() {
+      const runId = randomUUID()
+      yield* PriceSnapshotWorkflow.execute({ runId }).pipe(
+        Effect.catchAll((error) => Effect.logError(`PriceSnapshotWorkflow failed: ${error}`))
+      )
+    }),
+    Schedule.spaced("10 seconds")
   )
 
   const coinEnrichLoop = Effect.repeat(
     Effect.gen(function*() {
       const i = yield* Ref.getAndUpdate(indexRef, (n) => (n + 1) % 20)
-      yield* CoinEnrichWorkflow.execute({ coinId: TOP_20_COINS[i] }).pipe(
+      // Fresh tick per iteration → fresh idempotencyKey → the coin is re-enriched every tick.
+      const tick = new Date().toISOString()
+      yield* CoinEnrichWorkflow.execute({ coinId: TOP_20_COINS[i], tick }).pipe(
         Effect.catchAll((error) => Effect.logError(`CoinEnrichWorkflow failed: ${error}`))
       )
     }),
-    Schedule.spaced("10 minutes")
+    Schedule.spaced("1 minutes")
   )
 
   yield* Effect.all([priceSnapshotLoop, coinEnrichLoop], { concurrency: "unbounded" })

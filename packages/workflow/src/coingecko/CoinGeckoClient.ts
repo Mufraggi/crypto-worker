@@ -1,6 +1,6 @@
 import { FetchHttpClient, HttpClient, HttpClientError } from "@effect/platform"
 import { Config, Effect, Schema } from "effect"
-import { CoinDetail, CoinMarket } from "./CoinGeckoSchemas.js"
+import { type CoinDetail, CoinDetailApi, CoinMarket } from "./CoinGeckoSchemas.js"
 
 /** Raised when CoinGecko answers HTTP 429 (public rate limit: 30 req/min). */
 export class RateLimitError extends Schema.TaggedError<RateLimitError>()("RateLimitError", {
@@ -22,7 +22,7 @@ export class CoinGeckoClient extends Effect.Service<CoinGeckoClient>()("CoinGeck
       Config.withDefault("https://api.coingecko.com/api/v3")
     )
 
-    const get = <A>(path: string, schema: Schema.Schema<A>): Effect.Effect<A, ClientError> =>
+    const get = <A, I>(path: string, schema: Schema.Schema<A, I>): Effect.Effect<A, ClientError> =>
       httpClient.get(`${baseUrl}${path}`).pipe(
         Effect.flatMap((response): Effect.Effect<A, ClientError> => {
           if (response.status === 429) {
@@ -51,7 +51,17 @@ export class CoinGeckoClient extends Effect.Service<CoinGeckoClient>()("CoinGeck
       getCoinDetail: (id: string): Effect.Effect<CoinDetail, ClientError> =>
         get(
           `/coins/${id}?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false`,
-          CoinDetail
+          CoinDetailApi
+        ).pipe(
+          Effect.map((raw): CoinDetail => ({
+            id: raw.id,
+            symbol: raw.symbol,
+            name: raw.name,
+            description: raw.description?.en ?? null,
+            homepageUrl: raw.links?.homepage?.find((url) => url.length > 0) ?? null,
+            categories: (raw.categories ?? []).filter((c): c is string => c !== null),
+            marketCapRank: raw.marketCapRank ?? null
+          }))
         ),
       getMarketChart: (
         id: string
