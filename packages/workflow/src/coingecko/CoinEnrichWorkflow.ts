@@ -4,7 +4,13 @@ import { CoinGeckoClient } from "./CoinGeckoClient.js"
 import { CoinGeckoRepository } from "./CoinGeckoRepository.js"
 import { CoinDetail } from "./CoinGeckoSchemas.js"
 
-// 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
+/**
+ * CoinEnrichWorkflow — fetches metadata for a single coin from CoinGecko and upserts it into
+ * demo_coin_details. Bundles the tagged error, the durable handle, the business logic and the
+ * Activity-based logic adapter.
+ *
+ * 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
+ */
 export class CoinEnrichWorkflowError extends Schema.TaggedError<CoinEnrichWorkflowError>()(
   "CoinEnrichWorkflowError",
   { message: Schema.String }

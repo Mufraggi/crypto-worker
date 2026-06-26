@@ -8,6 +8,13 @@
  */
 export * as Workflow from "./Workflow.js"
 
+/**
+ * CoinEnrichWorkflow — fetches metadata for a single coin from CoinGecko and upserts it into
+ * demo_coin_details. Bundles the tagged error, the durable handle, the business logic and the
+ * Activity-based logic adapter.
+ *
+ * 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
+ */
 export * as CoinEnrichWorkflow from "./coingecko/CoinEnrichWorkflow.js"
 
 /**
@@ -31,4 +38,11 @@ export * as CoinGeckoRepository from "./coingecko/CoinGeckoRepository.js"
  */
 export * as CoinGeckoSchemas from "./coingecko/CoinGeckoSchemas.js"
 
+/**
+ * PriceSnapshotWorkflow — captures a snapshot of the top coin prices from CoinGecko and
+ * persists them into demo_price_snapshots. Bundles the tagged error, the durable handle, the
+ * business logic and the Activity-based logic adapter.
+ *
+ * 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
+ */
 export * as PriceSnapshotWorkflow from "./coingecko/PriceSnapshotWorkflow.js"

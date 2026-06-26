@@ -4,7 +4,13 @@ import { CoinGeckoClient } from "./CoinGeckoClient.js"
 import { CoinGeckoRepository } from "./CoinGeckoRepository.js"
 import { CoinMarket } from "./CoinGeckoSchemas.js"
 
-// 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
+/**
+ * PriceSnapshotWorkflow — captures a snapshot of the top coin prices from CoinGecko and
+ * persists them into demo_price_snapshots. Bundles the tagged error, the durable handle, the
+ * business logic and the Activity-based logic adapter.
+ *
+ * 1. Tagged error — propagated on the workflow error channel (cluster handles retry/dedup).
+ */
 export class PriceSnapshotWorkflowError extends Schema.TaggedError<PriceSnapshotWorkflowError>()(
   "PriceSnapshotWorkflowError",
   { message: Schema.String }
