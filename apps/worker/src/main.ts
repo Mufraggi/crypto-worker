@@ -13,6 +13,7 @@ import {
   PriceSnapshotWorkflowBusinessLogic,
   PriceSnapshotWorkflowLogic
 } from "@template/workflow/coingecko/PriceSnapshotWorkflow"
+import { SqlClient } from "@effect/sql"
 import { Effect, Layer, Option, Ref, Schedule } from "effect"
 import { randomUUID } from "node:crypto"
 import { runHealthServer } from "./Health/HttpServer.js"
@@ -96,7 +97,7 @@ const scheduler = Effect.gen(function*() {
         Effect.catchAll((error) => Effect.logError(`PriceSnapshotWorkflow failed: ${error}`))
       )
     }),
-    Schedule.spaced("30 seconds")
+    Schedule.spaced("5 minutes")
   )
 
   const coinEnrichLoop = Effect.repeat(
@@ -111,7 +112,16 @@ const scheduler = Effect.gen(function*() {
     Schedule.spaced("10 minutes")
   )
 
-  yield* Effect.all([priceSnapshotLoop, coinEnrichLoop], { concurrency: "unbounded" })
+  const cleanupLoop = Effect.repeat(
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`DELETE FROM demo_price_snapshots WHERE captured_at < NOW() - INTERVAL '2 hours'`
+      yield* Effect.log("🧹 Cleaned old price snapshots (retention: 2 hours)")
+    }),
+    Schedule.spaced("2 hours")
+  )
+
+  yield* Effect.all([priceSnapshotLoop, coinEnrichLoop, cleanupLoop], { concurrency: "unbounded" })
 })
 
 // ── Program ──────────────────────────────────────────────────────────────────
