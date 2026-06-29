@@ -1,6 +1,7 @@
 import { ClusterWorkflowEngine, RunnerAddress } from "@effect/cluster"
 import { FetchHttpClient } from "@effect/platform"
 import { NodeClusterSocket, NodeRuntime } from "@effect/platform-node"
+import { SqlClient } from "@effect/sql"
 import { CoinGeckoMigrations } from "@template/database/CoinGeckoMigrations"
 import { PgLive } from "@template/database/Sql"
 import {
@@ -13,7 +14,6 @@ import {
   PriceSnapshotWorkflowBusinessLogic,
   PriceSnapshotWorkflowLogic
 } from "@template/workflow/coingecko/PriceSnapshotWorkflow"
-import { SqlClient } from "@effect/sql"
 import { Effect, Layer, Option, Ref, Schedule } from "effect"
 import { randomUUID } from "node:crypto"
 import { runHealthServer } from "./Health/HttpServer.js"
